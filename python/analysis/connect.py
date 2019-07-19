@@ -1,82 +1,91 @@
-import asyncio
-import serial_asyncio
 import matplotlib.pyplot as plt
+import numpy as np
+from threading import Thread, Event
 from collections import deque
-import struct
+from queue import Queue
 import serial
+import time
 
 
-class Output(asyncio.Protocol):
-    def __init__(self):
+class SerialTextRead(Thread):
+    def __init__(self, url='COM3'):
         super().__init__()
-        self.transport = None
-        self.history = deque(maxlen=100)
-        self.buf = b''
-        self.start_read = False
-        self.start_buf = b''
-        plt.axis([0, 100, 0, 1025])
-        self.last_emg_sig = 0
+        self._queue = Queue()
+        self._arduino = serial.serial_for_url(url, baudrate=9600, timeout=.1)
+        self.timeout = -1
+        self._stop_event = Event()
 
-    def connection_made(self, transport):
-        self.transport = transport
-        print('port opened', transport)
-        transport.serial.rts = False
-        self.start_read = False
-        self.last_emg_sig = 0
+    def get_queue(self):
+        return self._queue
 
-    def data_received(self, data):
-        for i in range(len(data)):
-            bdata = data[i:i+1]
-            if self.start_read:
-                self.buf += bdata
-            else:
-                self.start_buf += bdata
-                if len(self.start_buf) >= 2:
-                    esc = struct.unpack('!H', self.start_buf[-2:])[0]
-                    if esc == 65535:
-                        self.start_buf = b''
-                        self.start_read = True
+    def stop(self):
+        self._stop_event.set()
 
-            if len(self.buf) == 2:
-                emg_sig = struct.unpack('!H', self.buf[::-1])[0]
-                if emg_sig - self.last_emg_sig != 10:
-                    print(emg_sig)
-                self.last_emg_sig = emg_sig
-                self.history.append(emg_sig)
-                self.buf = b''
-                self.start_read = False
+    def run(self):
+        start_time = time.time()
+        current_time = time.time() - start_time
+        while not self._stop_event.is_set() and (self.timeout < 0 or current_time < self.timeout):
+            current_time = time.time() - start_time
+            data = self._arduino.readline()
+            if len(data) > 2:
+                emg_sig = int(data[:-2])  # the last bit gets rid of the new-line chars
+                data_point = (current_time, emg_sig)
+                self._queue.put(data_point)
+                pass
+            pass
+        pass
 
-                if len(self.history) == 100:
-                    plt.clf()
-                plt.axis([0, 100, 0, 1025])
-                plt.plot(list(range(len(self.history))), list(self.history), 'g-')
-                plt.pause(0.01)
-            elif len(self.buf) > 2:
-                print('ERROR')
-        # self.transport.close()
+    def loop(self, timeout=-1):
+        self.timeout = timeout
+        self.start()
 
-    def connection_lost(self, exc):
-        print('port closed')
-        asyncio.get_event_loop().stop()
+
+def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_window=20):
+    if line1 == []:
+        plt.ion()
+        fig = plt.figure(figsize=(13, 6))
+        ax = fig.add_subplot(111)
+        # create a variable for the line so we can later update it
+        line1, = ax.plot(x_vec, y1_data, '-', alpha=0.8)
+        plt.ylabel('EMG Signal')
+        plt.xlabel('time [sec]')
+        plt.title(identifier)
+        plt.axis([-time_window, 0, 0, 1025])
         plt.show()
+
+    line1.set_xdata(x_vec)
+    line1.set_ydata(y1_data)
+
+    plt.xlim([x_vec[-1] - time_window, x_vec[-1]])
+
+    # this pauses the data so the figure/axis can catch up - the amount of pause can be altered above
+    plt.pause(pause_time)
+
+    # return line so we can update it again in the next iteration
+    return line1
 
 
 def main():
-    loop = asyncio.get_event_loop()
-    coro = serial_asyncio.create_serial_connection(loop, Output, 'COM3', baudrate=9600)
-    loop.run_until_complete(coro)
-    loop.run_forever()
-    loop.close()
-    # arduino = serial.serial_for_url('COM3', baudrate=9600, timeout=.1)
-    # last_data = 5
-    # while True:
-    #     data = arduino.readline()[:-2]  # the last bit gets rid of the new-line chars
-    #     if data:
-    #         new_data = int(data)
-    #         if new_data - last_data != 1:
-    #             print(new_data)
-    #         last_data = new_data
+    timeout = 60
+    time_window = 10
+    serieal = SerialTextRead(url='COM3')
+    serieal.loop()
+    size = time_window * 100
+    q = deque(maxlen=size)
+    for _ in range(size):
+        q.append((0., 0.))
+    line1 = []
+    start_time = time.time()
+    current_time = time.time() - start_time
+    while timeout < 0 or current_time < timeout:
+        current_time = time.time() - start_time
+        while not serieal.get_queue().empty():
+            q.append(serieal.get_queue().get())
 
+        x_vec, y_vec = zip(*q)
+        line1 = live_plotter(list(x_vec), list(y_vec), line1, time_window=time_window, identifier='EMG')
+    serieal.stop()
+    serieal.join()
 
 
 if __name__ == '__main__':
