@@ -15,16 +15,16 @@ class Output(asyncio.Protocol):
         self.start_read = False
         self.start_buf = b''
         plt.axis([0, 100, 0, 1025])
+        self.last_emg_sig = 0
 
     def connection_made(self, transport):
         self.transport = transport
         print('port opened', transport)
         transport.serial.rts = False
         self.start_read = False
+        self.last_emg_sig = 0
 
     def data_received(self, data):
-        print(data)
-        return
         for i in range(len(data)):
             bdata = data[i:i+1]
             if self.start_read:
@@ -39,7 +39,9 @@ class Output(asyncio.Protocol):
 
             if len(self.buf) == 2:
                 emg_sig = struct.unpack('!H', self.buf[::-1])[0]
-                print(emg_sig)
+                if emg_sig - self.last_emg_sig != 10:
+                    print(emg_sig)
+                self.last_emg_sig = emg_sig
                 self.history.append(emg_sig)
                 self.buf = b''
                 self.start_read = False
@@ -60,16 +62,20 @@ class Output(asyncio.Protocol):
 
 
 def main():
-    # loop = asyncio.get_event_loop()
-    # coro = serial_asyncio.create_serial_connection(loop, Output, 'COM5', baudrate=9600)
-    # loop.run_until_complete(coro)
-    # loop.run_forever()
-    # loop.close()
-    arduino = serial.serial_for_url('COM5', baudrate=9600, timeout=.1)
-    while True:
-        data = arduino.readline()[:-2]  # the last bit gets rid of the new-line chars
-        if data:
-            print(data)
+    loop = asyncio.get_event_loop()
+    coro = serial_asyncio.create_serial_connection(loop, Output, 'COM3', baudrate=9600)
+    loop.run_until_complete(coro)
+    loop.run_forever()
+    loop.close()
+    # arduino = serial.serial_for_url('COM3', baudrate=9600, timeout=.1)
+    # last_data = 5
+    # while True:
+    #     data = arduino.readline()[:-2]  # the last bit gets rid of the new-line chars
+    #     if data:
+    #         new_data = int(data)
+    #         if new_data - last_data != 1:
+    #             print(new_data)
+    #         last_data = new_data
 
 
 
