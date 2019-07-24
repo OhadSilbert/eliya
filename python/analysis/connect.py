@@ -46,14 +46,17 @@ class SerialTextRead(Thread):
         self.start()
 
 
-def live_plotter(x_vec, y1_data, y2_data, line1, line2, identifier='', pause_time=0.1, time_window=20):
+def live_plotter(x_vec, y1_data, y2_data, marks_vec, line1, line2, g3, identifier='', pause_time=0.1, time_window=20):
+    xmarks = [x for i, x in enumerate(x_vec) if marks_vec[i] > 0]
+    marks = [0 for i, x in enumerate(marks_vec) if marks_vec[i] > 0]
     if line1 == [] or line2 == []:
         plt.ion()
         fig = plt.figure(figsize=(13, 6))
         ax = fig.add_subplot(111)
         # create a variable for the line so we can later update it
         line1, = ax.plot(x_vec, y1_data, '-g', alpha=0.8)
-        line2, = ax.plot(x_vec, y2_data, '-r', alpha=0.8)
+        line2, = ax.plot(x_vec, y2_data, '-k', alpha=0.8)
+        g3, = ax.plot(xmarks, marks, '*r', alpha=0.8)
         plt.ylabel('EMG Signal')
         plt.xlabel('time [sec]')
         plt.title(identifier)
@@ -64,6 +67,8 @@ def live_plotter(x_vec, y1_data, y2_data, line1, line2, identifier='', pause_tim
     line1.set_ydata(y1_data)
     line2.set_xdata(x_vec)
     line2.set_ydata(y2_data)
+    g3.set_xdata(xmarks)
+    g3.set_ydata(marks)
 
     plt.xlim([x_vec[-1] - time_window, x_vec[-1]])
 
@@ -71,7 +76,7 @@ def live_plotter(x_vec, y1_data, y2_data, line1, line2, identifier='', pause_tim
     plt.pause(pause_time)
 
     # return line so we can update it again in the next iteration
-    return line1, line2
+    return line1, line2, g3
 
 
 def get_dir_name():
@@ -100,9 +105,10 @@ def main():
     size = time_window * number_of_points_per_second_from_arduion
     q = deque(maxlen=size)
     for _ in range(size):
-        q.append((0., 0., 0.))
+        q.append((0., 0., 0., 0.))
     line1 = []
     line2 = []
+    g3 = []
     start_time = time.time()
     current_time = time.time() - start_time
     file_name = os.path.join(get_dir_name(), get_file_name())
@@ -110,17 +116,17 @@ def main():
         current_time = time.time() - start_time
         while not serieal.get_queue().empty():
             signal_value = serieal.get_queue().get()
-            q.append(signal_value)
             mark = do_beep and (random.random() < (beep_rate / number_of_points_per_second_from_arduion))
+            q.append(signal_value + (mark,))
             if mark:
                 beep()
             if log_to_file:
                 with open(file_name, 'a') as fout:
                     fout.write(f'{signal_value[0]},{signal_value[1]},{signal_value[2]},{int(mark)}\n')
 
-        x_vec, y1_vec, y2_vec = zip(*q)
-        line1, line2 = live_plotter(list(x_vec), list(y1_vec), list(y2_vec), line1, line2, time_window=time_window,
-                                    identifier='EMG')
+        x_vec, y1_vec, y2_vec, marks_vec = zip(*q)
+        line1, line2, g3 = live_plotter(list(x_vec), list(y1_vec), list(y2_vec), list(marks_vec), line1, line2, g3,
+                                    time_window=time_window, identifier='EMG')
     serieal.stop()
     serieal.join()
 
