@@ -5,6 +5,10 @@ from collections import deque
 from queue import Queue
 import serial
 import time
+import os
+from datetime import datetime
+import winsound
+import random
 
 
 class SerialTextRead(Thread):
@@ -65,22 +69,48 @@ def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_wind
     return line1
 
 
+def get_dir_name():
+    return os.path.dirname(__file__)
+
+
+def get_file_name():
+    return str(datetime.now()).replace(' ', '_').replace('-', '_').replace(':', '_').replace('.', '_') + '.txt'
+
+
+def beep():
+    frequency = 500
+    duration = 250
+    winsound.Beep(frequency, duration)
+
+
 def main():
-    timeout = 60
+    log_to_file = True
+    do_beep = True
+    timeout = -1
     time_window = 10
-    serieal = SerialTextRead(url='COM3')
+    number_of_points_per_second_from_arduion = 100  # defined in the arduino code
+    beep_rate = 0.1  # beeps per second
+    serieal = SerialTextRead(url='COM5')
     serieal.loop()
-    size = time_window * 100
+    size = time_window * number_of_points_per_second_from_arduion
     q = deque(maxlen=size)
     for _ in range(size):
         q.append((0., 0.))
     line1 = []
     start_time = time.time()
     current_time = time.time() - start_time
+    file_name = os.path.join(get_dir_name(), get_file_name())
     while timeout < 0 or current_time < timeout:
         current_time = time.time() - start_time
         while not serieal.get_queue().empty():
-            q.append(serieal.get_queue().get())
+            signal_value = serieal.get_queue().get()
+            q.append(signal_value)
+            mark = do_beep and (random.random() < (beep_rate / number_of_points_per_second_from_arduion))
+            if mark:
+                beep()
+            if log_to_file:
+                with open(file_name, 'a') as fout:
+                    fout.write(f'{signal_value[0]},{signal_value[1]},{int(mark)}\n')
 
         x_vec, y_vec = zip(*q)
         line1 = live_plotter(list(x_vec), list(y_vec), line1, time_window=time_window, identifier='EMG')
