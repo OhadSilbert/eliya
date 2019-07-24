@@ -31,9 +31,11 @@ class SerialTextRead(Thread):
         while not self._stop_event.is_set() and (self.timeout < 0 or current_time < self.timeout):
             current_time = time.time() - start_time
             data = self._arduino.readline()
-            if len(data) > 2:
-                emg_sig = int(data[:-2])  # the last bit gets rid of the new-line chars
-                data_point = (current_time, emg_sig)
+            data = data.decode("utf-8")
+            fields = data.strip().split(',')
+            if len(fields) == 2:
+                emg_rectified_sig, emg_raw_sig = map(lambda x: float(x), fields)
+                data_point = (current_time, emg_rectified_sig, emg_raw_sig)
                 self._queue.put(data_point)
                 pass
             pass
@@ -44,13 +46,14 @@ class SerialTextRead(Thread):
         self.start()
 
 
-def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_window=20):
-    if line1 == []:
+def live_plotter(x_vec, y1_data, y2_data, line1, line2, identifier='', pause_time=0.1, time_window=20):
+    if line1 == [] or line2 == []:
         plt.ion()
         fig = plt.figure(figsize=(13, 6))
         ax = fig.add_subplot(111)
         # create a variable for the line so we can later update it
-        line1, = ax.plot(x_vec, y1_data, '-', alpha=0.8)
+        line1, = ax.plot(x_vec, y1_data, '-g', alpha=0.8)
+        line2, = ax.plot(x_vec, y2_data, '-r', alpha=0.8)
         plt.ylabel('EMG Signal')
         plt.xlabel('time [sec]')
         plt.title(identifier)
@@ -59,6 +62,8 @@ def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_wind
 
     line1.set_xdata(x_vec)
     line1.set_ydata(y1_data)
+    line2.set_xdata(x_vec)
+    line2.set_ydata(y2_data)
 
     plt.xlim([x_vec[-1] - time_window, x_vec[-1]])
 
@@ -66,7 +71,7 @@ def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_wind
     plt.pause(pause_time)
 
     # return line so we can update it again in the next iteration
-    return line1
+    return line1, line2
 
 
 def get_dir_name():
@@ -95,8 +100,9 @@ def main():
     size = time_window * number_of_points_per_second_from_arduion
     q = deque(maxlen=size)
     for _ in range(size):
-        q.append((0., 0.))
+        q.append((0., 0., 0.))
     line1 = []
+    line2 = []
     start_time = time.time()
     current_time = time.time() - start_time
     file_name = os.path.join(get_dir_name(), get_file_name())
@@ -110,10 +116,11 @@ def main():
                 beep()
             if log_to_file:
                 with open(file_name, 'a') as fout:
-                    fout.write(f'{signal_value[0]},{signal_value[1]},{int(mark)}\n')
+                    fout.write(f'{signal_value[0]},{signal_value[1]},{signal_value[2]},{int(mark)}\n')
 
-        x_vec, y_vec = zip(*q)
-        line1 = live_plotter(list(x_vec), list(y_vec), line1, time_window=time_window, identifier='EMG')
+        x_vec, y1_vec, y2_vec = zip(*q)
+        line1, line2 = live_plotter(list(x_vec), list(y1_vec), list(y2_vec), line1, line2, time_window=time_window,
+                                    identifier='EMG')
     serieal.stop()
     serieal.join()
 
