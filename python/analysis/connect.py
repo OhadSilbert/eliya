@@ -11,7 +11,7 @@ class SerialTextRead(Thread):
     def __init__(self, url='COM3'):
         super().__init__()
         self._queue = Queue()
-        self._arduino = serial.serial_for_url(url, baudrate=9600, timeout=.1)
+        # self._arduino = serial.serial_for_url(url, baudrate=9600, timeout=.1)
         self.timeout = -1
         self._stop_event = Event()
 
@@ -26,7 +26,7 @@ class SerialTextRead(Thread):
         current_time = time.time() - start_time
         while not self._stop_event.is_set() and (self.timeout < 0 or current_time < self.timeout):
             current_time = time.time() - start_time
-            data = self._arduino.readline()
+            data = b'100\n\r'#self._arduino.readline()
             if len(data) > 2:
                 emg_sig = int(data[:-2])  # the last bit gets rid of the new-line chars
                 data_point = (current_time, emg_sig)
@@ -66,7 +66,7 @@ def live_plotter(x_vec, y1_data, line1, identifier='', pause_time=0.1, time_wind
 
 
 def main():
-    timeout = 60
+    timeout = 20
     time_window = 10
     serieal = SerialTextRead(url='COM3')
     serieal.loop()
@@ -77,16 +77,33 @@ def main():
     line1 = []
     start_time = time.time()
     current_time = time.time() - start_time
+    aa = []
     while timeout < 0 or current_time < timeout:
         current_time = time.time() - start_time
         while not serieal.get_queue().empty():
             q.append(serieal.get_queue().get())
+            aa += [q]
 
-        x_vec, y_vec = zip(*q)
-        line1 = live_plotter(list(x_vec), list(y_vec), line1, time_window=time_window, identifier='EMG')
+    x_vec, y_vec = zip(*q)
+    line1 = live_plotter(list(x_vec), list(y_vec), line1, time_window=time_window, identifier='EMG')
     serieal.stop()
     serieal.join()
 
 
 if __name__ == '__main__':
-    main()
+    # main()
+    import sounddevice as sd
+
+    fs = 44100
+    data = np.random.uniform(-1, 1, fs)
+    for i in range(1000):
+        r = np.random.randint(2,15)
+        time.sleep(r)
+        print(f'now {r}')
+        sd.play(data, fs, blocking=True)
+
+
+
+
+    # from playsound import playsound
+    # playsound('audio.mp3')
